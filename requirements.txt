@@ -2,3 +2,5 @@ aiogram==2.25.2
 telethon==1.39.0
 aiohttp==3.8.6
 python-dotenv
+pysocks
+
