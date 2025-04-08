@@ -154,4 +154,22 @@ def get_all_user_proxies():
             proxy_dict[user_id] = []
         proxy_dict[user_id].append((proxy_type, ip, port, username, password))
     return proxy_dict
+def create_report_table():
+    conn = sqlite3.connect(DB_PATH)
+
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS username_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT,
+            user_id INTEGER,
+            reported_by TEXT,
+            proxy_used TEXT,
+            reasons TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    conn.commit()
+    conn.close()
+
 
